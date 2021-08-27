@@ -20,18 +20,33 @@ abstract class GLCanvasController {
   void dispose();
 }
 
-typedef GLCanvasBuilder = GLCanvasController Function(ReceivePort receivePort);
+typedef GLCanvasBuilder = GLCanvasController Function(GLEventController eventController);
+
+class GLEventController {
+  void Function(dynamic message)? _sender;
+  GLEventController();
+
+  GLEventController.ports(ReceivePort receiver, SendPort sender) :
+      this._sender = ((message) => sender.send(message)) {
+    receiver.listen((message) => onMessage?.call(message));
+  }
+
+  void Function(dynamic message)? onMessage;
+  void postMessage(dynamic message) => _sender?.call(message);
+}
 
 class GLCanvas extends StatefulWidget {
 
   final GLCanvasBuilder builder;
   final double? width;
   final double? height;
+  final GLEventController? eventController;
 
   GLCanvas({
     required this.builder,
     this.width,
     this.height,
+    this.eventController,
   });
 
   @override
@@ -114,14 +129,17 @@ class _GLCanvasState extends State<GLCanvas> {
 
     int runState = 0;
 
-    ReceivePort otherPort = ReceivePort();
+    ReceivePort isolateReceivePort = ReceivePort();
 
     void run() async {
       runState = 1;
       var ptr = Binder().glCanvasSetup(port.viewId);
       if (ptr.address != 0) {
         GLContext ctx = GLContext(ptr);
-        GLCanvasController controller = builder(otherPort);
+        GLCanvasController controller = builder(GLEventController.ports(
+            isolateReceivePort,
+            port.sendPort
+        ));
         bool firstTime = true;
 
         Timer timer;
@@ -161,7 +179,7 @@ class _GLCanvasState extends State<GLCanvas> {
           break;
         }
         default: {
-          otherPort.sendPort.send(message);
+          isolateReceivePort.sendPort.send(message);
           break;
         }
       }
@@ -172,15 +190,24 @@ class _GLCanvasState extends State<GLCanvas> {
   void newIsolate(int viewId) async {
     receivePort = ReceivePort();
     isolate = await Isolate.spawn(setup, _SendInfo(
-        viewId: viewId,
-        sendPort: receivePort.sendPort,
-        methodHandler: PluginUtilities.getCallbackHandle(widget.builder)!.toRawHandle()
+      viewId: viewId,
+      sendPort: receivePort.sendPort,
+      methodHandler: PluginUtilities.getCallbackHandle(widget.builder)!.toRawHandle()
     ));
-    sendPort = await receivePort.firstWhere((element) => element is SendPort);
-    if (disposed) {
-      sendPort!.send("gl.stop");
-    } else {
-      sendPort!.send("gl.run");
-    }
+    bool firstTime = true;
+    receivePort.listen((message) {
+      if (firstTime) {
+        firstTime = false;
+        sendPort = message;
+        if (disposed) {
+          sendPort!.send("gl.stop");
+        } else {
+          sendPort!.send("gl.run");
+        }
+        widget.eventController?._sender = (message) => sendPort!.send(message);
+      } else {
+        widget.eventController?.onMessage?.call(message);
+      }
+    });
   }
 }

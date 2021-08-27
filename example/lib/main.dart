@@ -152,7 +152,7 @@ void main()
   }
 }
 
-GLCanvasController _builder(ReceivePort receivePort) {
+GLCanvasController _builder(GLEventController eventController) {
   return CanvasController();
 }
 

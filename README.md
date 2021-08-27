@@ -1,15 +1,43 @@
 # gl_canvas
 
-A new Flutter plugin.
+A OpenGL context canvas in flutter.
 
-## Getting Started
+## Usage
 
-This project is a starting point for a Flutter
-[plug-in package](https://flutter.dev/developing-packages/),
-a specialized package that includes platform-specific implementation code for
-Android and/or iOS.
+```dart
+// New a GLCanvas require a builder
+GLCanvas(
+    builder: _builder,
+)
+```
 
-For help getting started with Flutter, view our
-[online documentation](https://flutter.dev/docs), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+The builder should return a `GLCanvasController`. and the 
+builder must be a top level function or a static function.
 
+```dart
+class CanvasController extends GLCanvasController {
+    LibOpenGLES gl = LibOpenGLES(
+      Platform.isAndroid ?
+      DynamicLibrary.open("libGLESv2.so"):
+      DynamicLibrary.process()
+  );
+
+
+    @override
+    bool shouldRender(GLContext ctx, int tick) => false;
+
+    void onFrame(GLContext ctx, int tick) {
+        gl.glClearColor(0, 1.0, 0, 1.0);
+        gl.glClear(GL_COLOR_BUFFER_BIT);
+        //...
+    }
+
+    @override
+    void dispose() {}
+}
+```
+
+GLCanvasController is running on a isolate, in this isolate you 
+can derect using the OpenGLES API. In my example I using 
+[opengl_es_bindings](https://pub.dev/packages/opengl_es_bindings)
+to call the OpenGLES.
