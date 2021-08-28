@@ -38,6 +38,6 @@ class CanvasController extends GLCanvasController {
 ```
 
 GLCanvasController is running on a isolate, in this isolate you 
-can derect using the OpenGLES API. In my example I using 
+can use the OpenGLES API directly. In my example I using 
 [opengl_es_bindings](https://pub.dev/packages/opengl_es_bindings)
 to call the OpenGLES.
