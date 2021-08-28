@@ -12,9 +12,12 @@ import 'gl_ffi.dart';
 
 
 abstract class GLCanvasController {
+
+  /// Time interval of each frame.
   Duration get frameDuration;
 
   bool shouldRender(GLContext ctx, int tick);
+  /// Write rendering code in [onFrame] method.
   void onFrame(GLContext ctx, int tick);
 
   void dispose();
@@ -162,6 +165,8 @@ class _GLCanvasState extends State<GLCanvas> {
             }
           }
         });
+      } else {
+        Isolate.current.kill(priority: Isolate.immediate);
       }
     }
     receivePort.listen((message) {
