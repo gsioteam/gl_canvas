@@ -1,7 +1,7 @@
 name: gl_canvas
-description: A OpenGL context canvas in flutter.
-version: 0.0.1
-homepage:
+description: A OpenGLES context canvas in flutter.
+version: 0.0.3
+homepage: https://github.com/gsioteam/gl_canvas
 
 environment:
   sdk: ">=2.12.0 <3.0.0"

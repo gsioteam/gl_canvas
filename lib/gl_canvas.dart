@@ -117,7 +117,7 @@ class _GLCanvasState extends State<GLCanvas> {
         creationParamsCodec: const StandardMessageCodec(),
       );
     } else {
-      throw Exception("The platform not supported");
+      throw Exception("The platform is not supported");
     }
   }
 
