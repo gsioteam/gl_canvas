@@ -1,6 +1,6 @@
 # gl_canvas
 
-A OpenGL context canvas in flutter.
+A OpenGLES context canvas in flutter.
 
 ## Usage
 
