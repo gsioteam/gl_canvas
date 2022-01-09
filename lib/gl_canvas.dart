@@ -1,5 +1,5 @@
 
-import 'dart:isolate';
+import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
@@ -92,9 +92,19 @@ class GLCanvasState extends State<GLCanvas> {
   Widget build(BuildContext context) {
     var textureId = widget.controller?.value.textureId;
     if (textureId != null) {
-      return Texture(
-        textureId: textureId,
-      );
+      if (Platform.isIOS) {
+        return Transform(
+          transform: Matrix4.diagonal3Values(1, -1, 1),
+          alignment: Alignment.center,
+          child: Texture(
+            textureId: textureId,
+          ),
+        );
+      } else {
+        return Texture(
+          textureId: textureId,
+        );
+      }
     } else {
       return Container();
     }
