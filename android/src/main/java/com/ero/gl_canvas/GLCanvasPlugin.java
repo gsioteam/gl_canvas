@@ -2,11 +2,15 @@ package com.ero.gl_canvas;
 
 import androidx.annotation.NonNull;
 
+import java.util.HashMap;
+import java.util.Map;
+
 import io.flutter.embedding.engine.plugins.FlutterPlugin;
 import io.flutter.plugin.common.MethodCall;
 import io.flutter.plugin.common.MethodChannel;
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler;
 import io.flutter.plugin.common.MethodChannel.Result;
+import io.flutter.view.TextureRegistry;
 
 /** GlCanvasPlugin */
 public class GLCanvasPlugin implements FlutterPlugin, MethodCallHandler {
@@ -15,21 +19,33 @@ public class GLCanvasPlugin implements FlutterPlugin, MethodCallHandler {
   /// This local reference serves to register the plugin with the Flutter Engine and unregister it
   /// when the Flutter Engine is detached from the Activity
   private MethodChannel channel;
+  private TextureRegistry textureRegistry;
+
+  private Map<Long, GLTexture> textureMap = new HashMap<>();
 
   @Override
   public void onAttachedToEngine(@NonNull FlutterPluginBinding flutterPluginBinding) {
     channel = new MethodChannel(flutterPluginBinding.getBinaryMessenger(), "gl_canvas");
     channel.setMethodCallHandler(this);
 
-    flutterPluginBinding
-            .getPlatformViewRegistry()
-            .registerViewFactory("gl_canvas_view", new GLCanvasViewFactory());
+    textureRegistry = flutterPluginBinding.getTextureRegistry();
   }
 
   @Override
   public void onMethodCall(@NonNull MethodCall call, @NonNull Result result) {
-    if (call.method.equals("getPlatformVersion")) {
-      result.success("Android " + android.os.Build.VERSION.RELEASE);
+    if (call.method.equals("init")) {
+      int width = ((Number)call.argument("width")).intValue();
+      int height = ((Number)call.argument("height")).intValue();
+      GLTexture texture = new GLTexture(textureRegistry, width, height);
+      textureMap.put(texture.getTextureId(), texture);
+      result.success(texture.getTextureId());
+    } else if (call.method.equals("destroy")) {
+      Number id = (Number)call.argument("id");
+      GLTexture texture = textureMap.get(id.longValue());
+      if (texture != null) {
+        texture.destroy();
+      }
+      result.success(null);
     } else {
       result.notImplemented();
     }

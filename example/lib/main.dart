@@ -1,13 +1,11 @@
 import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
-import 'dart:async';
 
-import 'package:flutter/services.dart';
 import 'package:gl_canvas/gl_canvas.dart';
-import 'package:gl_canvas/gl_context.dart';
 import 'package:opengl_es_bindings/opengl_es_bindings.dart';
 import 'package:ffi/ffi.dart';
 
@@ -15,7 +13,7 @@ void main() {
   runApp(MyApp());
 }
 
-class CanvasController extends GLCanvasController {
+class CanvasRenderer {
   bool _init = false;
   late Pointer<Float> vertices;
   LibOpenGLES gl = LibOpenGLES(
@@ -27,13 +25,17 @@ class CanvasController extends GLCanvasController {
   @override
   Duration get frameDuration => const Duration(milliseconds: 16);
 
+  int width;
+  int height;
 
-  int loadProgram(GLContext ctx, String vertex, String fragment) {
-    int vertexShader = loadShader(ctx, GL_VERTEX_SHADER, vertex);
+  CanvasRenderer(this.width, this.height);
+
+  int loadProgram(String vertex, String fragment) {
+    int vertexShader = loadShader(GL_VERTEX_SHADER, vertex);
     if (vertexShader == 0)
       return 0;
 
-    int fragmentShader = loadShader(ctx, GL_FRAGMENT_SHADER, fragment);
+    int fragmentShader = loadShader(GL_FRAGMENT_SHADER, fragment);
     if (fragmentShader == 0) {
       gl.glDeleteShader(vertexShader);
       return 0;
@@ -56,7 +58,7 @@ class CanvasController extends GLCanvasController {
     return programHandle;
   }
 
-  int loadShader(GLContext ctx, int type, String shaderStr) {
+  int loadShader(int type, String shaderStr) {
     int shader = gl.glCreateShader(type);
     if (shader == 0) {
       print("Error: failed to create shader.");
@@ -79,7 +81,7 @@ class CanvasController extends GLCanvasController {
   late int _positionSlot;
   late int _programHandle;
 
-  void init(GLContext ctx) {
+  void init() {
     vertices = malloc.allocate(9 * sizeOf<Float>());
     vertices[0] = 0.0;
     vertices[1] = 0.5;
@@ -92,7 +94,6 @@ class CanvasController extends GLCanvasController {
     vertices[8] = 0.0;
 
     _programHandle = loadProgram(
-        ctx,
         """
 attribute vec4 vPosition; 
  
@@ -122,22 +123,17 @@ void main()
     malloc.free(ptr);
   }
 
-  @override
-  bool shouldRender(GLContext ctx, int tick) {
-    return false;
-  }
-
-  @override
-  void onFrame(GLContext ctx, int tick) {
+  Random random = Random();
+  void render() {
     if (!_init) {
       _init = true;
-      init(ctx);
+      init();
     }
 
-    gl.glClearColor(0, 1.0, 0, 1.0);
+    gl.glClearColor(random.nextDouble(), random.nextDouble(), random.nextDouble(), 1);
     gl.glClear(GL_COLOR_BUFFER_BIT);
 
-    gl.glViewport(0, 0, ctx.width.toInt(), ctx.height.toInt());
+    gl.glViewport(0, 0, width, height);
 
     gl.glVertexAttribPointer(_positionSlot, 3, GL_FLOAT, GL_FALSE, 0, vertices.cast<Void>() );
     gl.glEnableVertexAttribArray(_positionSlot);
@@ -146,14 +142,9 @@ void main()
 
   }
 
-  @override
   void dispose() {
     malloc.free(vertices);
   }
-}
-
-GLCanvasController _builder(GLEventController eventController) {
-  return CanvasController();
 }
 
 class MyApp extends StatefulWidget {
@@ -163,61 +154,75 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
 
-  bool _display = true;
+  late GLCanvasController controller;
+  CanvasRenderer renderer = CanvasRenderer(512, 512);
 
   @override
   void initState() {
     super.initState();
+
+    controller = GLCanvasController();
   }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      home: Scaffold(
-        appBar: AppBar(
-          title: const Text('Plugin example app'),
-        ),
-        body: Column(
-          children: [
-            Row(
-              children: [
-                TextButton(
+      home: Home(controller, renderer),
+    );
+  }
+}
+
+class Home extends StatelessWidget {
+  final GLCanvasController controller;
+  final CanvasRenderer renderer;
+
+  Home(this.controller, this.renderer);
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Plugin example app'),
+      ),
+      body: Column(
+        children: [
+          Row(
+            children: [
+              TextButton(
                   onPressed: () {
-                    setState(() {
-                      _display = true;
-                    });
+                    controller.beginDraw();
+                    renderer.render();
+                    controller.endDraw();
                   },
-                  child: Text("On")
-                ),
-                TextButton(
+                  child: Text("Draw")
+              ),
+              TextButton(
                   onPressed: () {
-                    setState(() {
-                      _display = false;
-                    });
+                    Navigator.of(context).push(MaterialPageRoute(builder: (context) {
+                      return Scaffold(
+                        appBar: AppBar(
+                          title: Text("Hello"),
+                        ),
+                      );
+                    }));
                   },
-                  child: Text("Off")
-                )
-              ],
-            ),
-            Expanded(
+                  child: Text("Push")
+              ),
+            ],
+          ),
+          Expanded(
               child: Center(
                 child: Container(
                   width: 300,
                   height: 300,
                   color: Colors.blue,
-                  child: Visibility(
-                    child: GLCanvas(
-                      builder: _builder,
-                      width: 300,
-                      height: 300,
-                    ),
-                    visible: _display,
+                  child: GLCanvas(
+                    controller: controller,
                   ),
                 ),
               )
-            )
-          ],
-        ),
+          )
+        ],
       ),
     );
   }

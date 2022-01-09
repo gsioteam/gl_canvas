@@ -16,22 +16,16 @@ using namespace std;
 
 class CacheInfo;
 
-map<int32_t, CacheInfo *> _cache;
 JavaVM *_vm;
-
-mutex global_mutex;
 
 typedef struct {
     double width = 0;
     double height = 0;
 } OpenGLCanvasInfo;
 
+map<long, CacheInfo*> _dataIndex;
 class CacheInfo {
     jobject object = nullptr;
-    bool _init = false;
-    int viewId;
-
-    int retainCount = 1;
 
     ANativeWindow *window = nullptr;
     EGLDisplay _display = EGL_NO_DISPLAY;
@@ -40,6 +34,7 @@ class CacheInfo {
     EGLint format;
     GLint _framebufferWidth;
     GLint _framebufferHeight;
+
 
     void destroy() {
         LOGI("Destroying context");
@@ -51,6 +46,48 @@ class CacheInfo {
         _display = EGL_NO_DISPLAY;
         _surface = EGL_NO_SURFACE;
         _context = EGL_NO_CONTEXT;
+    }
+
+
+    float scale = 0;
+    jobject surface = nullptr;
+
+    JNIEnv *env() {
+        if (_vm) {
+            int status;
+            JNIEnv *env;
+
+            status = _vm->GetEnv((void **) &env, JNI_VERSION_1_6);
+            if (status < 0) {
+                status = _vm->AttachCurrentThread(&env, NULL);
+                if (status < 0) {
+                    return nullptr;
+                }
+            }
+            return env;
+        }
+        return nullptr;
+    }
+
+    long textureId;
+
+public:
+    OpenGLCanvasInfo information;
+
+    CacheInfo(JNIEnv *env, jobject target, long textureId) {
+        object = env->NewGlobalRef(target);
+        _dataIndex[textureId] = this;
+        this->textureId = textureId;
+    }
+
+    ~CacheInfo() {
+        _dataIndex.erase(textureId);
+        destroy();
+        JNIEnv *env = this->env();
+        env->DeleteGlobalRef(object);
+        env->DeleteGlobalRef(surface);
+        if (window)
+            ANativeWindow_release(window);
     }
 
     void initialize() {
@@ -72,9 +109,9 @@ class CacheInfo {
                 EGL_RED_SIZE, 8,
                 EGL_STENCIL_SIZE, 8,
                 EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
-                EGL_SURFACE_TYPE, EGL_WINDOW_BIT | EGL_SWAP_BEHAVIOR_PRESERVED_BIT,
-                EGL_SAMPLE_BUFFERS, 1,
-                EGL_SAMPLES, 2,
+                EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
+//                EGL_SAMPLE_BUFFERS, 1,
+//                EGL_SAMPLES, 2,
                 EGL_NONE
         };
 
@@ -118,11 +155,11 @@ class CacheInfo {
             return ;
         }
 
-        if (!eglSurfaceAttrib(eglDisplay, surface, EGL_SWAP_BEHAVIOR, EGL_BUFFER_PRESERVED)) {
-            LOGE("eglSurfaceAttrib() returned error %d", eglGetError());
-            destroy();
-            return ;
-        };
+//        if (!eglSurfaceAttrib(eglDisplay, surface, EGL_SWAP_BEHAVIOR, EGL_BUFFER_PRESERVED)) {
+//            LOGE("eglSurfaceAttrib() returned error %d", eglGetError());
+//            destroy();
+//            return ;
+//        }
 
         if (!eglMakeCurrent(eglDisplay, surface, surface, context)) {
             LOGE("eglMakeCurrent() returned error %d", eglGetError());
@@ -141,43 +178,10 @@ class CacheInfo {
         _surface = surface;
         _context = context;
         LOGE("EGL INIT SUCCESS");
-    }
-    float scale = 0;
-    jobject surface = nullptr;
 
-    JNIEnv *env() {
-        if (_vm) {
-            int status;
-            JNIEnv *env;
-
-            status = _vm->GetEnv((void **) &env, JNI_VERSION_1_6);
-            if (status < 0) {
-                status = _vm->AttachCurrentThread(&env, NULL);
-                if (status < 0) {
-                    return nullptr;
-                }
-            }
-            return env;
-        }
-        return nullptr;
-    }
-
-public:
-    OpenGLCanvasInfo information;
-
-    CacheInfo(JNIEnv *env, jobject target, int viewId) : viewId(viewId) {
-        lock_guard<mutex> lock(global_mutex);
-        object = env->NewGlobalRef(target);
-        _cache[viewId] = this;
-    }
-
-    ~CacheInfo() {
-        destroy();
-        JNIEnv *env = this->env();
-        env->DeleteGlobalRef(object);
-        env->DeleteGlobalRef(surface);
-        if (window)
-            ANativeWindow_release(window);
+        glClearColor(0, 0, 0, 0);
+        glClear(GL_COLOR_BUFFER_BIT);
+        render();
     }
 
     void surfaceReady(JNIEnv *env, double width, double height, float scale, jobject surface) {
@@ -185,6 +189,7 @@ public:
         this->information.width = width;
         this->information.height = height;
         this->surface = env->NewGlobalRef(surface);
+
     }
 
     void surfaceDestroy() {
@@ -192,9 +197,8 @@ public:
     }
 
     void step() {
-        if (!_init) {
-            initialize();
-            _init = true;
+        if (!eglMakeCurrent(_display, _surface, _surface, _context)) {
+            LOGE("eglMakeCurrent() returned error %d", eglGetError());
         }
     }
 
@@ -206,87 +210,64 @@ public:
         }
     }
 
-    void retain() {
-        retainCount++;
-    }
-
-    static void release(CacheInfo *info) {
-        if (--info->retainCount == 0) {
-            lock_guard<mutex> lock(global_mutex);
-            _cache.erase(info->viewId);
-            delete info;
-        }
-    }
 };
 
 extern "C" {
-
-void* glCanvasSetup(int viewId) {
-    lock_guard<mutex> lock(global_mutex);
-    auto it = _cache.find(viewId);
-    if (it != _cache.end()) {
-        CacheInfo *info = it->second;
-        info->retain();
-        return info;
-    } else {
-        return nullptr;
-    }
-}
-
-int glCanvasStep(void *ptr) {
-    CacheInfo* info = (CacheInfo *)ptr;
-    info->step();
-    return 1;
-}
-
-OpenGLCanvasInfo *glCanvasGetInfo(void *ptr) {
-    CacheInfo* info = (CacheInfo *)ptr;
-    return &info->information;
-}
-
-void glCanvasRender(void *ptr) {
-    CacheInfo* info = (CacheInfo *)ptr;
-    info->render();
-}
-
-void glCanvasStop(void *ptr) {
-    CacheInfo* info = (CacheInfo *)ptr;
-    CacheInfo::release(info);
-}
 
 jint JNI_OnLoad(JavaVM *vm, void *reserved) {
     _vm = vm;
     return JNI_VERSION_1_6;
 }
 
+void gl_init(int64_t textureId) {
+    auto it = _dataIndex.find(textureId);
+    if (it != _dataIndex.end()) {
+        auto canvas = it->second;
+        canvas->initialize();
+    }
+}
+
+void gl_prepare(int64_t textureId) {
+    auto it = _dataIndex.find(textureId);
+    if (it != _dataIndex.end()) {
+        it->second->step();
+    }
+}
+
+void gl_render(int64_t textureId) {
+    auto it = _dataIndex.find(textureId);
+    if (it != _dataIndex.end()) {
+        it->second->render();
+    }
+}
 
 JNIEXPORT void JNICALL
-        Java_com_ero_gl_1canvas_GLSurfaceView_dispose(JNIEnv *env, jobject thiz, jlong ptr) {
+Java_com_ero_gl_1canvas_GLTexture_dispose(JNIEnv *env, jobject thiz, jlong ptr) {
     CacheInfo *info = (CacheInfo*)ptr;
-    CacheInfo::release(info);
+    delete info;
 }
 
 JNIEXPORT jlong JNICALL
-Java_com_ero_gl_1canvas_GLSurfaceView_init(JNIEnv *env, jobject thiz, jint view_id) {
-    return (jlong)new CacheInfo(env, thiz, view_id);
+Java_com_ero_gl_1canvas_GLTexture_init(JNIEnv *env, jobject thiz, jlong textureId) {
+    return (jlong)new CacheInfo(env, thiz, textureId);
 }
 
 JNIEXPORT void JNICALL
-Java_com_ero_gl_1canvas_GLSurfaceView_surfaceReady(JNIEnv *env, jobject thiz, jlong ptr,
-                                            jobject surface, jdouble width, jdouble height,
-                                            jfloat scale) {
+Java_com_ero_gl_1canvas_GLTexture_surfaceReady(JNIEnv *env, jobject thiz, jlong ptr,
+                                                   jobject surface, jdouble width, jdouble height,
+                                                   jfloat scale) {
     CacheInfo *info = (CacheInfo*)ptr;
     info->surfaceReady(env, width, height, scale, surface);
 }
 
 JNIEXPORT void JNICALL
-Java_com_ero_gl_1canvas_GLSurfaceView_surfaceDestroy(JNIEnv *env, jobject thiz, jlong ptr) {
+Java_com_ero_gl_1canvas_GLTexture_surfaceDestroy(JNIEnv *env, jobject thiz, jlong ptr) {
     CacheInfo *info = (CacheInfo*)ptr;
-//    info->surfaceDestroy();
+    info->surfaceDestroy();
 }
 
 JNIEXPORT void JNICALL
-Java_com_ero_gl_1canvas_GLSurfaceView_resize(JNIEnv *env, jobject thiz, jlong ptr, jdouble width,
+Java_com_ero_gl_1canvas_GLTexture_resize(JNIEnv *env, jobject thiz, jlong ptr, jdouble width,
                                              jdouble height) {
     CacheInfo *info = (CacheInfo*)ptr;
     info->information.width = width;

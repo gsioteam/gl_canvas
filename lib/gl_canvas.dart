@@ -1,218 +1,129 @@
 
-import 'dart:async';
-import 'dart:io';
 import 'dart:isolate';
-import 'dart:ui';
 
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
-import 'gl_context.dart';
-import 'gl_ffi.dart';
+import 'ffi_bind.dart' as bind;
 
+class GLValue {
+  int? textureId;
 
-abstract class GLCanvasController {
+  GLValue._();
 
-  /// Time interval of each frame.
-  Duration get frameDuration;
-
-  bool shouldRender(GLContext ctx, int tick);
-  /// Write rendering code in [onFrame] method.
-  void onFrame(GLContext ctx, int tick);
-
-  void dispose();
+  GLValue _copy({
+    int? textureId,
+  }) {
+    GLValue value = GLValue._();
+    value.textureId = textureId;
+    return value;
+  }
 }
 
-typedef GLCanvasBuilder = GLCanvasController Function(GLEventController eventController);
+class GLCanvasController extends ValueNotifier<GLValue> {
+  static const MethodChannel _channel = const MethodChannel('gl_canvas');
 
-class GLEventController {
-  void Function(dynamic message)? _sender;
-  GLEventController();
+  late Future<void> _ready;
 
-  GLEventController.ports(ReceivePort receiver, SendPort sender) :
-      this._sender = ((message) => sender.send(message)) {
-    receiver.listen((message) => onMessage?.call(message));
+  Future<void> get ready => _ready;
+
+  GLCanvasController({
+    double width = 512,
+    double height = 512,
+  }) : super(GLValue._()) {
+    _ready = _setup(width, height);
   }
 
-  void Function(dynamic message)? onMessage;
-  void postMessage(dynamic message) => _sender?.call(message);
+  Future<void> _setup(double width, double height) async {
+    value = value._copy(
+      textureId: await _channel.invokeMethod<int>("init", {
+        "width": width,
+        "height": height,
+      }),
+    );
+    if (value.textureId != null) {
+      bind.init(value.textureId!);
+    }
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
+    if (value.textureId != null) {
+      _channel.invokeMethod("destroy", {
+        "id": value.textureId,
+      });
+    }
+  }
+
+  void beginDraw() {
+    if (value.textureId == null) {
+      throw Exception("textureId is null");
+    }
+    bind.prepare(value.textureId!);
+  }
+
+  void endDraw() {
+    if (value.textureId == null) {
+      throw Exception("textureId is null");
+    }
+    bind.render(value.textureId!);
+  }
 }
 
 class GLCanvas extends StatefulWidget {
 
-  final GLCanvasBuilder builder;
-  final double? width;
-  final double? height;
-  final GLEventController? eventController;
+  final GLCanvasController? controller;
 
   GLCanvas({
-    required this.builder,
-    this.width,
-    this.height,
-    this.eventController,
-  });
+    Key? key,
+    this.controller,
+  }) : super(key: key);
 
   @override
-  State<StatefulWidget> createState() => _GLCanvasState();
+  State<StatefulWidget> createState() => GLCanvasState();
 }
 
-class _SendInfo {
-  int viewId;
-  int methodHandler;
-  SendPort sendPort;
+typedef QueueAction<T> = Future<T> Function();
 
-  _SendInfo({
-    required this.viewId,
-    required this.sendPort,
-    required this.methodHandler,
-  });
-}
+class GLCanvasState extends State<GLCanvas> {
 
-class _GLCanvasState extends State<GLCanvas> {
-  static const MethodChannel _channel =
-    const MethodChannel('gl_canvas');
-  static int _idCounter = 0x10002;
-
-  int viewId = _idCounter++;
-  late ReceivePort receivePort;
-  SendPort? sendPort;
-  late Isolate isolate;
-  bool disposed = false;
+  @override
+  Widget build(BuildContext context) {
+    var textureId = widget.controller?.value.textureId;
+    if (textureId != null) {
+      return Texture(
+        textureId: textureId,
+      );
+    } else {
+      return Container();
+    }
+  }
 
   @override
   void initState() {
     super.initState();
 
-    newIsolate(viewId);
+    widget.controller?.addListener(_update);
   }
 
   @override
   void dispose() {
     super.dispose();
 
-    sendPort?.send("gl.stop");
-    disposed = true;
+    widget.controller?.removeListener(_update);
   }
 
   @override
-  Widget build(BuildContext context) {
-    if (Platform.isAndroid) {
-      return AndroidView(
-        viewType: "gl_canvas_view",
-        creationParams: {
-          "id": viewId,
-          "width": widget.width ?? 0,
-          "height": widget.height ?? 0
-        },
-        creationParamsCodec: const StandardMessageCodec(),
-      );
-    } else if (Platform.isIOS) {
-      return UiKitView(
-        viewType: "gl_canvas_view",
-        creationParams: {
-          "id": viewId,
-          "width": widget.width ?? 0,
-          "height": widget.height ?? 0
-        },
-        creationParamsCodec: const StandardMessageCodec(),
-      );
-    } else {
-      throw Exception("The platform is not supported");
+  void didUpdateWidget(covariant GLCanvas oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller?.removeListener(_update);
+      widget.controller?.addListener(_update);
     }
   }
 
-  static void setup(_SendInfo port) async {
-    GLCanvasBuilder builder = PluginUtilities
-        .getCallbackFromHandle(
-        CallbackHandle.fromRawHandle(port.methodHandler)
-    ) as GLCanvasBuilder;
-
-    ReceivePort receivePort = ReceivePort();
-    port.sendPort.send(receivePort.sendPort);
-
-    int runState = 0;
-
-    ReceivePort isolateReceivePort = ReceivePort();
-
-    void run() async {
-      runState = 1;
-      var ptr = Binder().glCanvasSetup(port.viewId);
-      if (ptr.address != 0) {
-        GLContext ctx = GLContext(ptr);
-        GLCanvasController controller = builder(GLEventController.ports(
-            isolateReceivePort,
-            port.sendPort
-        ));
-        bool firstTime = true;
-
-        Timer timer;
-        timer = Timer.periodic(controller.frameDuration, (timer) {
-          if (runState != 1) {
-            timer.cancel();
-            controller.dispose();
-            Binder().glCanvasStop(ptr);
-            Isolate.current.kill(priority: Isolate.immediate);
-            return;
-          }
-          ctx.updateInfo();
-          bool ready = ctx.width > 0 && ctx.height > 0;
-          if (ready) {
-            if (firstTime || controller.shouldRender(ctx, timer.tick)) {
-              firstTime = false;
-              Binder().glCanvasStep(ptr);
-              controller.onFrame(ctx, timer.tick);
-              Binder().glCanvasRender(ptr);
-            }
-          }
-        });
-      } else {
-        Isolate.current.kill(priority: Isolate.immediate);
-      }
-    }
-    receivePort.listen((message) {
-      switch(message) {
-        case 'gl.run': {
-          run();
-          break;
-        }
-        case 'gl.stop': {
-          if (runState == 0) {
-            Isolate.current.kill(priority: Isolate.immediate);
-          } else {
-            runState = 2;
-          }
-          break;
-        }
-        default: {
-          isolateReceivePort.sendPort.send(message);
-          break;
-        }
-      }
-    });
-
-  }
-
-  void newIsolate(int viewId) async {
-    receivePort = ReceivePort();
-    isolate = await Isolate.spawn(setup, _SendInfo(
-      viewId: viewId,
-      sendPort: receivePort.sendPort,
-      methodHandler: PluginUtilities.getCallbackHandle(widget.builder)!.toRawHandle()
-    ));
-    bool firstTime = true;
-    receivePort.listen((message) {
-      if (firstTime) {
-        firstTime = false;
-        sendPort = message;
-        if (disposed) {
-          sendPort!.send("gl.stop");
-        } else {
-          sendPort!.send("gl.run");
-        }
-        widget.eventController?._sender = (message) => sendPort!.send(message);
-      } else {
-        widget.eventController?.onMessage?.call(message);
-      }
-    });
+  void _update() {
+    setState(() {});
   }
 }

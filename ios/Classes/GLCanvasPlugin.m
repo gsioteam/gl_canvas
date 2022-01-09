@@ -1,143 +1,118 @@
 #import "GLCanvasPlugin.h"
-#import "GLView.h"
+#import "GLTexture.h"
 
-@interface GLCanvasViewFactory : NSObject <FlutterPlatformViewFactory>
-- (instancetype)initWithMessenger:(NSObject<FlutterBinaryMessenger>*)messenger;
+
+@interface GLCanvas : NSObject
+
+@property (nonatomic, readonly) int64_t textureId;
+@property (nonatomic, readonly) GLTexture *texture;
+
+- (id)initWithTextureRegistry:(NSObject<FlutterTextureRegistry>*)textureRegistry
+                    withWidth:(int32_t)width
+                   withHeight:(int32_t)height;
+
+- (void)destroy;
+
+- (void)prepare;
+- (void)render;
+
 @end
 
-@interface GLCanvasView : NSObject <FlutterPlatformView>
+NSMutableDictionary<NSNumber *, GLCanvas *> *_canvasIndex;
 
-- (instancetype)initWithFrame:(CGRect)frame
-               viewIdentifier:(int64_t)viewId
-                    arguments:(id _Nullable)args
-              binaryMessenger:(NSObject<FlutterBinaryMessenger>*)messenger;
-
-- (UIView*)view;
-@end
-
-@implementation GLCanvasPlugin
+@implementation GLCanvasPlugin {
+    NSObject<FlutterTextureRegistry>* _textureRegistry;
+}
 
 + (void)registerWithRegistrar:(NSObject<FlutterPluginRegistrar>*)registrar {
     FlutterMethodChannel* channel = [FlutterMethodChannel
         methodChannelWithName:@"gl_canvas"
               binaryMessenger:[registrar messenger]];
-      GLCanvasPlugin* instance = [[GLCanvasPlugin alloc] init];
+      GLCanvasPlugin* instance = [[GLCanvasPlugin alloc] initWithTextureRegistry:registrar.textures];
     [registrar addMethodCallDelegate:instance channel:channel];
-    
-    GLCanvasViewFactory* factory =
-        [[GLCanvasViewFactory alloc] initWithMessenger:registrar.messenger];
-    [registrar registerViewFactory:factory withId:@"gl_canvas_view"];
+}
+
+- (id)initWithTextureRegistry:(NSObject<FlutterTextureRegistry>*)textureRegistry {
+    self = [super init];
+    if (self) {
+        _textureRegistry = textureRegistry;
+    }
+    return self;
 }
 
 - (void)handleMethodCall:(FlutterMethodCall*)call result:(FlutterResult)result {
+    if ([@"init" isEqualToString:call.method]) {
+        int32_t width = [call.arguments[@"width"] intValue];
+        int32_t height = [call.arguments[@"height"] intValue];
+        GLCanvas *canvas = [[GLCanvas alloc] initWithTextureRegistry:_textureRegistry
+                                                           withWidth:width
+                                                          withHeight:height];
+        if (!_canvasIndex) {
+            _canvasIndex = [NSMutableDictionary dictionary];
+        }
+        [_canvasIndex setObject:canvas forKey:@(canvas.textureId)];
+        result(@(canvas.textureId));
+    } else if ([@"destroy" isEqualToString:call.method]) {
+        int64_t _id = [call.arguments[@"id"] longLongValue];
+        GLCanvas *canvas = _canvasIndex[@(_id)];
+        [canvas destroy];
+        [_canvasIndex removeObjectForKey:@(_id)];
+        result(nil);
+    }
     result(FlutterMethodNotImplemented);
 }
 
 @end
 
-
-@implementation GLCanvasViewFactory {
-  NSObject<FlutterBinaryMessenger>* _messenger;
+@implementation GLCanvas {
+    NSObject<FlutterTextureRegistry> *_textureRegistry;
 }
 
-- (instancetype)initWithMessenger:(NSObject<FlutterBinaryMessenger>*)messenger {
-  self = [super init];
-  if (self) {
-    _messenger = messenger;
-  }
-  return self;
+- (id)initWithTextureRegistry:(NSObject<FlutterTextureRegistry> *)textureRegistry
+                    withWidth:(int32_t)width
+                   withHeight:(int32_t)height {
+    self = [super init];
+    if (self) {
+        _textureRegistry = textureRegistry;
+        _texture = [[GLTexture alloc] initWithWidth:width withHeight:height];
+        _textureId = [textureRegistry registerTexture:_texture];
+    }
+    return self;
 }
 
-- (NSObject<FlutterPlatformView>*)createWithFrame:(CGRect)frame
-                                   viewIdentifier:(int64_t)viewId
-                                        arguments:(id _Nullable)args {
-  return [[GLCanvasView alloc] initWithFrame:frame
-                              viewIdentifier:viewId
-                                   arguments:args
-                             binaryMessenger:_messenger];
+- (void)destroy {
+    [_textureRegistry unregisterTexture:_textureId];
 }
 
-- (NSObject<FlutterMessageCodec>*)createArgsCodec {
-    return FlutterStandardMessageCodec.sharedInstance;
+- (void)prepare {
+    [self.texture setCurrent];
+}
+
+- (void)render {
+    [self.texture submit];
+//    [_textureRegistry textureFrameAvailable:_textureId];
 }
 
 @end
 
-NSMutableDictionary<NSNumber *, GLView *> *_caches;
 
-@implementation GLCanvasView {
-    GLView      *_view;
-    NSInteger   _viewId;
-    
-    FlutterEngine *_flutterEngine;
-}
-
-- (instancetype)initWithFrame:(CGRect)frame
-               viewIdentifier:(int64_t)viewId
-                    arguments:(id _Nullable)args
-              binaryMessenger:(NSObject<FlutterBinaryMessenger>*)messenger {
-  if (self = [super init]) {
-      @synchronized (GLCanvasView.class) {
-          frame.size.width = [args[@"width"] floatValue];
-          frame.size.height = [args[@"height"] floatValue];
-          _view = [[GLView alloc] initWithFrame:frame];
-          _view.scale = [UIScreen mainScreen].scale;
-          _viewId = [[args objectForKey:@"id"] integerValue];
-          
-          if (!_caches) {
-              _caches = [NSMutableDictionary dictionary];
-          }
-          [_caches setObject:_view forKey:@(_viewId)];
-      }
-  }
-  return self;
-}
-
-- (UIView*)view {
-    return _view;
-}
-
-- (void)dealloc {
-    @synchronized (GLCanvasView.class) {
-        _view.disabled = YES;
-        [_caches removeObjectForKey:@(_viewId)];
+void gl_init(int64_t textureId) {
+    GLCanvas *canvas = [_canvasIndex objectForKey:@(textureId)];
+    if (canvas) {
+        [canvas.texture initialize];
     }
 }
 
-@end
-
-void* glCanvasSetup(int viewId) {
-    @synchronized (GLCanvasView.class) {
-        GLView *glView = [_caches objectForKey:@(viewId)];
-        if (glView) {
-            [glView setup];
-            return (void *)CFBridgingRetain(glView);
-        } else {
-            return nil;
-        }
+void gl_prepare(int64_t textureId) {
+    GLCanvas *canvas = [_canvasIndex objectForKey:@(textureId)];
+    if (canvas) {
+        [canvas prepare];
     }
 }
 
-int glCanvasStep(void *ptr) {
-    GLView *glView = (__bridge GLView *)ptr;
-    if (glView.disabled) {
-        return 0;
-    } else {
-        [glView enable];
-        return 1;
+void gl_render(int64_t textureId) {
+    GLCanvas *canvas = [_canvasIndex objectForKey:@(textureId)];
+    if (canvas) {
+        [canvas render];
     }
-}
-
-OpenGLCanvasInfo *glCanvasGetInfo(void *ptr) {
-    GLView *glView = (__bridge GLView *)ptr;
-    return glView.information;
-}
-
-void glCanvasRender(void *ptr) {
-    GLView *glView = (__bridge GLView *)ptr;
-    [glView commit];
-}
-
-void glCanvasStop(void *ptr) {
-    CFBridgingRelease(ptr);
 }
