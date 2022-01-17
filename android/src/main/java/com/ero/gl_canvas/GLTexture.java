@@ -28,10 +28,9 @@ public class GLTexture {
     }
 
     public void destroy() {
-        surfaceDestroy(ptr);
+        dispose(ptr);
         surface.release();
         textureEntry.release();
-        dispose(ptr);
     }
 
     public long getTextureId() {
