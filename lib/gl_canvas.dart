@@ -20,6 +20,12 @@ class GLValue {
   }
 }
 
+enum GLESVersion {
+  GLES_10,
+  GLES_20,
+  GLES_30,
+}
+
 class GLCanvasController extends ValueNotifier<GLValue> {
   static const MethodChannel _channel = const MethodChannel('gl_canvas');
 
@@ -30,15 +36,17 @@ class GLCanvasController extends ValueNotifier<GLValue> {
   GLCanvasController({
     double width = 512,
     double height = 512,
+    GLESVersion version = GLESVersion.GLES_20,
   }) : super(GLValue._()) {
-    _ready = _setup(width, height);
+    _ready = _setup(width, height, version);
   }
 
-  Future<void> _setup(double width, double height) async {
+  Future<void> _setup(double width, double height, GLESVersion version) async {
     value = value._copy(
       textureId: await _channel.invokeMethod<int>("init", {
         "width": width,
         "height": height,
+        "version": version.index + 1,
       }),
     );
     if (value.textureId != null) {

@@ -15,7 +15,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, readonly) GLint framebufferWidth;
 @property (nonatomic, readonly) GLint framebufferHeight;
 
-- (id)initWithWidth:(int32_t)width withHeight:(int32_t)height;
+- (id)initWithWidth:(int32_t)width withHeight:(int32_t)height withVersion:(int32_t)version;
 
 - (void)initialize;
 

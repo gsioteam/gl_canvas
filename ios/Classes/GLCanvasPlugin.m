@@ -9,7 +9,8 @@
 
 - (id)initWithTextureRegistry:(NSObject<FlutterTextureRegistry>*)textureRegistry
                     withWidth:(int32_t)width
-                   withHeight:(int32_t)height;
+                   withHeight:(int32_t)height
+                  withVersion:(int32_t)version;
 
 - (void)destroy;
 
@@ -44,9 +45,11 @@ NSMutableDictionary<NSNumber *, GLCanvas *> *_canvasIndex;
     if ([@"init" isEqualToString:call.method]) {
         int32_t width = [call.arguments[@"width"] intValue];
         int32_t height = [call.arguments[@"height"] intValue];
+        int32_t version = [call.arguments[@"version"] intValue];
         GLCanvas *canvas = [[GLCanvas alloc] initWithTextureRegistry:_textureRegistry
                                                            withWidth:width
-                                                          withHeight:height];
+                                                          withHeight:height
+                                                         withVersion:version];
         if (!_canvasIndex) {
             _canvasIndex = [NSMutableDictionary dictionary];
         }
@@ -70,11 +73,12 @@ NSMutableDictionary<NSNumber *, GLCanvas *> *_canvasIndex;
 
 - (id)initWithTextureRegistry:(NSObject<FlutterTextureRegistry> *)textureRegistry
                     withWidth:(int32_t)width
-                   withHeight:(int32_t)height {
+                   withHeight:(int32_t)height
+                  withVersion:(int32_t)version {
     self = [super init];
     if (self) {
         _textureRegistry = textureRegistry;
-        _texture = [[GLTexture alloc] initWithWidth:width withHeight:height];
+        _texture = [[GLTexture alloc] initWithWidth:width withHeight:height withVersion:version];
         _textureId = [textureRegistry registerTexture:_texture];
     }
     return self;

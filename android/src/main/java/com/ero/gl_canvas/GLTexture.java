@@ -16,7 +16,7 @@ public class GLTexture {
     Surface surface;
     private long ptr;
 
-    GLTexture(TextureRegistry textureRegistry, int width, int height) {
+    GLTexture(TextureRegistry textureRegistry, int width, int height, int version) {
         textureEntry = textureRegistry.createSurfaceTexture();
 
         SurfaceTexture surfaceTexture = textureEntry.surfaceTexture();
@@ -24,7 +24,7 @@ public class GLTexture {
         surfaceTexture.setDefaultBufferSize(width, height);
         ptr = init(getTextureId());
 
-        surfaceReady(ptr, surface, width, height, 1);
+        surfaceReady(ptr, surface, width, height, 1, version);
     }
 
     public void destroy() {
@@ -39,7 +39,7 @@ public class GLTexture {
 
     private native long init(long textureId);
     private native void dispose(long ptr);
-    private native void surfaceReady(long ptr, Surface surface, double width, double height, float scale);
+    private native void surfaceReady(long ptr, Surface surface, double width, double height, float scale, int version);
     private native void surfaceDestroy(long ptr);
     private native void resize(long ptr, double width, double height);
 }

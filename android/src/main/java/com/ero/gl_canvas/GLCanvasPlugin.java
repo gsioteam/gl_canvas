@@ -36,7 +36,8 @@ public class GLCanvasPlugin implements FlutterPlugin, MethodCallHandler {
     if (call.method.equals("init")) {
       int width = ((Number)call.argument("width")).intValue();
       int height = ((Number)call.argument("height")).intValue();
-      GLTexture texture = new GLTexture(textureRegistry, width, height);
+      int version = ((Number)call.argument("version")).intValue();
+      GLTexture texture = new GLTexture(textureRegistry, width, height, version);
       textureMap.put(texture.getTextureId(), texture);
       result.success(texture.getTextureId());
     } else if (call.method.equals("destroy")) {

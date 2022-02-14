@@ -50,6 +50,7 @@ class CacheInfo {
 
 
     float scale = 0;
+    int version = 2;
     jobject surface = nullptr;
 
     JNIEnv *env() {
@@ -137,7 +138,7 @@ public:
 
 
         int contextAttribs[] = {
-                EGL_CONTEXT_CLIENT_VERSION, 2,
+                EGL_CONTEXT_CLIENT_VERSION, version,
                 EGL_NONE
         };
 
@@ -184,8 +185,9 @@ public:
         render();
     }
 
-    void surfaceReady(JNIEnv *env, double width, double height, float scale, jobject surface) {
+    void surfaceReady(JNIEnv *env, double width, double height, float scale, jobject surface, int version) {
         this->scale = scale;
+        this->version = version;
         this->information.width = width;
         this->information.height = height;
         this->surface = env->NewGlobalRef(surface);
@@ -255,9 +257,9 @@ Java_com_ero_gl_1canvas_GLTexture_init(JNIEnv *env, jobject thiz, jlong textureI
 JNIEXPORT void JNICALL
 Java_com_ero_gl_1canvas_GLTexture_surfaceReady(JNIEnv *env, jobject thiz, jlong ptr,
                                                    jobject surface, jdouble width, jdouble height,
-                                                   jfloat scale) {
+                                                   jfloat scale, jint version) {
     CacheInfo *info = (CacheInfo*)ptr;
-    info->surfaceReady(env, width, height, scale, surface);
+    info->surfaceReady(env, width, height, scale, surface, version);
 }
 
 JNIEXPORT void JNICALL

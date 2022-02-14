@@ -19,6 +19,8 @@
 @property (nonatomic, assign) int32_t width;
 @property (nonatomic, assign) int32_t height;
 
+@property (nonatomic, assign) int32_t version;
+
 @end
 
 
@@ -31,11 +33,12 @@
     CVOpenGLESTextureRef _texture;
 }
 
-- (id)initWithWidth:(int32_t)width withHeight:(int32_t)height {
+- (id)initWithWidth:(int32_t)width withHeight:(int32_t)height withVersion:(int32_t)version {
     self = [super init];
     if (self) {
         self.width = width;
         self.height = height;
+        self.version = version;
     }
     return self;
 }
@@ -56,7 +59,7 @@
 
 - (void)initialize {
     
-    self.context = [[EAGLContext alloc] initWithAPI:kEAGLRenderingAPIOpenGLES2];
+    self.context = [[EAGLContext alloc] initWithAPI:(EAGLRenderingAPI)self.version];
     [EAGLContext setCurrentContext:_context];
 
     [self createCVBufferWithSize:CGSizeMake(self.width, self.height)
