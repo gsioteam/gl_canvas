@@ -94,7 +94,7 @@ NSMutableDictionary<NSNumber *, GLCanvas *> *_canvasIndex;
 
 - (void)render {
     [self.texture submit];
-//    [_textureRegistry textureFrameAvailable:_textureId];
+    [_textureRegistry textureFrameAvailable:_textureId];
 }
 
 @end
